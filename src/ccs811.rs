@@ -236,7 +236,7 @@ impl CCS811 {
     pub fn read(&mut self) -> Result<Ccs811Data, String> {
         let mut buffer = [0u8; 8];
         self.i2c
-            .write_read(&[CCS811_ALG_RESULT_DATA], &mut buffer)
+            .block_read(CCS811_ALG_RESULT_DATA, &mut buffer)
             .expect("VOC read failed during i2c");
 
         let co2 = u32::from_be_bytes([0, buffer[0], buffer[1], 0]);
