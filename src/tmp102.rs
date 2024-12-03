@@ -17,13 +17,12 @@ impl TMP102 {
     }
 
     pub fn read(&mut self) -> Result<f32, Box<dyn Error>> {
-        let mut buffer = [0u8; 2];
-
-        self.i2c.set_slave_address(TMP102_ADDR);
+        self.i2c
+            .set_slave_address(TMP102_ADDR)
+            .expect("Could not set I2C slave address");
         // Read 2 bytes from the TMP102 temperature register (register 0x00)
+        let mut buffer = [0u8; 2];
         self.i2c.write_read(&[0x00], &mut buffer)?;
-
-        // Combine the two bytes into a 12-bit temperature value
         let raw_temp = ((buffer[0] as u16) << 4) | ((buffer[1] as u16) >> 4);
 
         // Convert raw value to temperature in Celsius
