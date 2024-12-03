@@ -17,6 +17,7 @@ fn main() {
     voc.begin().expect("Could not begin VOC sensor reading ");
 
     loop {
+        println!("Read VOC Sensor");
         match voc.read() {
             Ok(data) => {
                 println!(
@@ -27,6 +28,7 @@ fn main() {
             Err(error) => println!("Could not read data: {}", error),
         }
 
+        println!("Read TMP Sensor");
         match temp.read() {
             Ok(data) => {
                 println!("Temp Celsius: {}", data)
