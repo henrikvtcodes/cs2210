@@ -1,11 +1,11 @@
 mod ccs811;
 mod tmp102;
 
-use std::thread::sleep;
-use std::time::Duration;
-
 use rppal::gpio::Gpio;
 use rppal::i2c::I2c;
+use std::error::Error;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn main() {
     let i2c = I2c::with_bus(1).expect("Failed to start I2c!");

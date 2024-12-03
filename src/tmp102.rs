@@ -1,4 +1,5 @@
 use rppal::i2c::I2c;
+use std::error::Error;
 
 const TMP102_ADDR: u16 = 0x48; // Default I2C address for TMP102
 
