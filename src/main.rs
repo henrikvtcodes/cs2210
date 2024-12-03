@@ -11,7 +11,17 @@ fn main() {
 
     voc.begin();
 
-    println!("{}", voc.read().unwrap());
+    loop {
+        match voc.read() {
+            Ok(data) => {
+                println!(
+                    "t_voc: {}, e_co2: {}, raw: {:x?}",
+                    data.t_voc, data.e_co2, data.raw
+                );
+            }
+            Err(error) => println!("Could not read data: {}", error),
+        }
+    }
 
     // println!("Hello, world!");
 }
