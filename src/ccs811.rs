@@ -304,7 +304,7 @@ impl CCS811 {
     /// };
     /// ```
     pub fn read(&mut self) -> Result<Ccs811Data, String> {
-        let mut buffer = [0u8; 1];
+        let mut buffer = [0u8; 8];
         self.awake();
 
         self.i2c
