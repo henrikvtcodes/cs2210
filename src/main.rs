@@ -2,6 +2,7 @@ mod bmp280;
 mod ccs811;
 mod tmp102;
 
+use rppal::gpio::Gpio;
 use rppal::i2c::I2c;
 use std::thread::sleep;
 use std::time::Duration;
@@ -14,6 +15,14 @@ fn main() {
     // let mut temp = tmp102::TMP102::new(i2c_temp);
 
     voc.begin().expect("Could not begin VOC sensor reading ");
+
+    match voc.begin() {
+        Ok(()) => match voc.start(ccs811::Ccs811Mode::Sec1) {
+            Ok(()) => (),
+            Err(error) => panic!("Could not start: {}", error),
+        },
+        Err(error) => panic!("Could not init the chip: {}", error),
+    }
 
     loop {
         println!("Read VOC Sensor");
