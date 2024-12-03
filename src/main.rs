@@ -8,12 +8,12 @@ use std::thread::sleep;
 use std::time::Duration;
 
 fn main() {
-    let i2c_voc = I2c::with_bus(1).expect("Failed to start VOC I2c!");
-    // let i2c_temp = I2c::with_bus(1).expect("Failed to start Temp I2c!");
+    // let i2c_voc = I2c::with_bus(1).expect("Failed to start VOC I2c!");
+    let i2c_temp = I2c::with_bus(1).expect("Failed to start Temp I2c!");
     let i2c_pressure = I2c::with_bus(1).expect("Failed to start Pressure I2c!");
 
     // let mut voc = ccs811::CCS811::new(i2c_voc, 14);
-    // let mut temp = tmp102::TMP102::new(i2c_temp);
+    let mut temp = tmp102::TMP102::new(i2c_temp);
     let mut press = bmp280::BMP280::new(i2c_pressure);
 
     press
@@ -42,15 +42,15 @@ fn main() {
         //     Err(error) => println!("Could not read data: {}", error),
         // }
 
-        // println!("Read TMP Sensor");
-        // match temp.read() {
-        //     Ok(data) => {
-        //         println!("Temp Celsius: {}", data)
-        //     }
-        //     Err(err) => {
-        //         println!("Could not read temp data: {}", err)
-        //     }
-        // }
+        println!("Read TMP Sensor");
+        match temp.read() {
+            Ok(data) => {
+                println!("Temp Celsius: {}", data)
+            }
+            Err(err) => {
+                println!("Could not read temp data: {}", err)
+            }
+        }
 
         print!("Read BMP280 pressure");
         match press.read_pressure() {
