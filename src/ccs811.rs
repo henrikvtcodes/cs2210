@@ -2,6 +2,7 @@ use rppal::gpio::{Gpio, OutputPin};
 use rppal::i2c::I2c;
 use std::cmp::min;
 use std::fmt::{self, write};
+use std::io::Error;
 use std::result::Result::Err;
 use std::thread::sleep;
 use std::time::Duration;
@@ -63,8 +64,8 @@ fn float_to_bytes(value: f32) -> [u8; 2] {
 }
 
 pub struct Ccs811Data {
-    pub t_voc: u16,
-    pub e_co2: u16,
+    pub t_voc: u32,
+    pub e_co2: u32,
     pub raw: Vec<u8>,
 }
 
@@ -93,7 +94,6 @@ pub struct CCS811ErrorRegister {
 
 pub struct CCS811 {
     pub i2c: I2c,
-    pub wake: Option<OutputPin>,
 }
 
 impl CCS811 {
@@ -101,41 +101,6 @@ impl CCS811 {
         self.i2c
             .block_write(CCS811_SW_RESET, &[0x11, 0xE5, 0x72, 0x8A])
             .map_err(|error| format!("Couldn't write to I2C: {}", error))?;
-
-        sleep(CCS811_WAIT_AFTER_RESET_US);
-
-        Ok(())
-    }
-
-    fn app_start(&mut self) -> Result<(), String> {
-        self.i2c
-            .write(&[CCS811_APP_START])
-            .map_err(|error| format!("Could not set App start: {}", error))?;
-
-        sleep(CCS811_WAIT_AFTER_APPSTART_US);
-
-        Ok(())
-    }
-
-    fn erase_app(&mut self) -> Result<(), String> {
-        self.i2c
-            .block_write(CCS811_APP_ERASE, &[0xE7, 0xA7, 0xE6, 0x09])
-            .map_err(|error| format!("Could not erase app: {}", error))?;
-
-        sleep(CCS811_WAIT_AFTER_APPERASE_MS);
-
-        Ok(())
-    }
-
-    fn check_hw_id(&mut self) -> Result<(), String> {
-        let hw_id = self
-            .i2c
-            .smbus_read_byte(CCS811_HW_ID)
-            .map_err(|error| format!("Couldn't read HWID: {}", error))?;
-
-        if hw_id != 0x81 {
-            return Err(format!("HWID of chip is not 0x81 but {:x?}", hw_id));
-        }
 
         Ok(())
     }
@@ -156,35 +121,8 @@ impl CCS811 {
         Ok(())
     }
 
-    fn awake(&mut self) {
-        let _ = self
-            .i2c
-            .set_slave_address(CCS811_SLAVEADDR_0)
-            .map_err(|error| format!("Could not set slave addr: {}", error));
-
-        if let Some(pin) = &mut self.wake {
-            pin.set_low();
-            sleep(CCS811_WAIT_AFTER_WAKE_US);
-        }
-    }
-
-    fn sleep(&mut self) {
-        if let Some(pin) = &mut self.wake {
-            pin.set_high();
-        }
-    }
-
-    pub fn new(i2c: I2c, wake_pin_number: u8) -> CCS811 {
-        CCS811 {
-            i2c,
-            wake: Some(
-                Gpio::new()
-                    .expect("Failed to start GPIO")
-                    .get(wake_pin_number)
-                    .expect("Failed to open pin")
-                    .into_output(),
-            ),
-        }
+    pub fn new(i2c: I2c) -> CCS811 {
+        CCS811 { i2c }
     }
 
     /// Initialize CCS811 chip with i2c bus
@@ -205,14 +143,8 @@ impl CCS811 {
             .set_slave_address(CCS811_SLAVEADDR_0)
             .map_err(|error| format!("Could not set slave addr: {}", error))?;
 
-        self.awake();
-
         self.reset()
-            .and(self.check_hw_id())
-            .and(self.app_start())
             .and(self.check_status(CCS811_STATUS_APP_MODE | CCS811_STATUS_APP_VERIFY))?;
-
-        self.sleep();
 
         Ok(())
     }
@@ -238,11 +170,9 @@ impl CCS811 {
     /// }
     /// ```
     pub fn start(&mut self, mode: Ccs811Mode) -> Result<(), String> {
-        self.awake();
         self.i2c
             .block_write(CCS811_MEAS_MODE, &[(mode as u8) << 4])
             .map_err(|error| format!("Could not set mode: {}", error))?;
-        self.sleep();
 
         Ok(())
     }
@@ -305,34 +235,29 @@ impl CCS811 {
     /// ```
     pub fn read(&mut self) -> Result<Ccs811Data, String> {
         let mut buffer = [0u8; 8];
-        self.awake();
-
         self.i2c
-            .set_slave_address(CCS811_SLAVEADDR_0)
-            .expect("Failed to set slave address for CCS811");
+            .write_read(&[CCS811_ALG_RESULT_DATA], &mut buffer)
+            .expect("VOC read failed during i2c");
 
-        self.i2c
-            .block_read(CCS811_ALG_RESULT_DATA, &mut buffer)
-            .map_err(|error| format!("Could not read chip data: {}", error))?;
+        let co2 = u32::from_be_bytes([0, buffer[0], buffer[1], 0]);
+        let tvoc = u32::from_be_bytes([0, buffer[2], buffer[3], 0]);
 
-        self.sleep();
-
-        if buffer[5] != 0 {
-            return Err(format!("Some error while reading data {:x?}", buffer[5]));
-        }
+        // if buffer[5] != 0 {
+        //     return Err(format!("Some error while reading data {:x?}", buffer[5]));
+        // }
 
         let data = Ccs811Data {
-            e_co2: buffer[0] as u16 * 256 + buffer[1] as u16,
-            t_voc: buffer[2] as u16 * 256 + buffer[3] as u16,
+            e_co2: co2,
+            t_voc: tvoc,
             raw: buffer.to_vec(),
         };
 
-        if data.t_voc > 1187 || data.e_co2 > 8192 {
-            return Err(format!(
-                "The data is above max {}ppb, {}ppm",
-                data.t_voc, data.e_co2
-            ));
-        }
+        // if data.t_voc > 1187 || data.e_co2 > 8192 {
+        //     return Err(format!(
+        //         "The data is above max {}ppb, {}ppm",
+        //         data.t_voc, data.e_co2
+        //     ));
+        // }
 
         Ok(data)
     }

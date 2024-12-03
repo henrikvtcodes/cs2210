@@ -15,7 +15,7 @@ fn main() {
     let i2c_temp = I2c::with_bus(1).expect("Failed to start Temp I2c!");
     let i2c_pressure = I2c::with_bus(1).expect("Failed to start Pressure I2c!");
 
-    let mut voc = ccs811::CCS811::new(i2c_voc, 14);
+    let mut voc = ccs811::CCS811::new(i2c_voc);
     let mut temp = tmp102::TMP102::new(i2c_temp);
     let mut press = bmp280::BMP280::new(i2c_pressure);
 
@@ -23,15 +23,15 @@ fn main() {
         .intialize()
         .expect("Failed to initialize pressure sensor");
 
-    voc.begin().expect("Could not begin VOC sensor reading ");
+    // voc.begin().expect("Could not begin VOC sensor reading ");
 
-    match voc.begin() {
-        Ok(()) => match voc.start(ccs811::Ccs811Mode::Sec1) {
-            Ok(()) => (),
-            Err(error) => panic!("Could not start: {}", error),
-        },
-        Err(error) => panic!("Could not init the chip: {}", error),
-    }
+    // match voc.begin() {
+    //     Ok(()) => match voc.start(ccs811::Ccs811Mode::Sec1) {
+    //         Ok(()) => (),
+    //         Err(error) => panic!("Could not start: {}", error),
+    //     },
+    //     Err(error) => panic!("Could not init the chip: {}", error),
+    // }
 
     // --- --- --- Prometheus Exporter --- --- ---
     let addr: SocketAddr = "0.0.0.0:9184".parse().unwrap();
@@ -98,12 +98,12 @@ fn main() {
         let curr_pressure = press.read_pressure().unwrap() as f64;
         pressure_gauge.set(curr_pressure);
 
-        // let curr_voc = voc.read().unwrap();
-        let curr_voc = Ccs811Data {
-            e_co2: 0,
-            t_voc: 0,
-            raw: vec![],
-        };
+        let curr_voc = voc.read().unwrap();
+        // let curr_voc = Ccs811Data {
+        //     e_co2: 0,
+        //     t_voc: 0,
+        //     raw: vec![],
+        // };
         tvoc_gauge.set(curr_voc.t_voc as f64);
         eco2_gauge.set(curr_voc.e_co2 as f64);
     }
