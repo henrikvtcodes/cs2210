@@ -14,7 +14,7 @@ pub enum Ccs811Mode {
 }
 
 pub const CCS811_SLAVEADDR_0: u16 = 0x5A;
-// pub const CCS811_SLAVEADDR_1: u16 = 0x5B;
+pub const CCS811_SLAVEADDR_1: u16 = 0x5B;
 
 // CCS811 registers/mailboxes, all 1 byte except when stated otherwise
 pub const CCS811_STATUS: u8 = 0x00;
@@ -132,6 +132,10 @@ impl CCS811 {
     }
 
     fn awake(&mut self) {
+        let _ = self
+            .i2c
+            .set_slave_address(CCS811_SLAVEADDR_0)
+            .map_err(|error| format!("Could not set slave addr: {}", error));
         if let Some(pin) = &mut self.wake {
             pin.set_low();
             sleep(CCS811_WAIT_AFTER_WAKE_US);
