@@ -11,7 +11,7 @@ fn main() {
 
     voc.begin();
 
-    println!(voc.read());
+    println!("{}", voc.read());
 
     // println!("Hello, world!");
 }
