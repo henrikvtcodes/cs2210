@@ -1,4 +1,4 @@
-use rppal::gpio::OutputPin;
+use rppal::gpio::{Gpio, OutputPin};
 use rppal::i2c::I2c;
 use std::cmp::min;
 use std::result::Result::Err;
@@ -144,16 +144,16 @@ impl CCS811 {
         }
     }
 
-    pub fn new(i2c: I2c, wake_pin_number: uint8) -> CCS811 {
+    pub fn new(i2c: I2c, wake_pin_number: u8) -> CCS811 {
         CCS811 {
             i2c,
-            wake: Gpio::new()
-                .expect("Failed to start GPIO")
-                .get(wake_pin_number)
-                .expect(
-                    "Failed to attach to pin {} for sensor wake",
-                    wake_pin_number,
-                ),
+            wake: Some(
+                Gpio::new()
+                    .expect("Failed to start GPIO")
+                    .get(wake_pin_number)
+                    .expect("Failed to open pin")
+                    .into_output(),
+            ),
         }
     }
 
