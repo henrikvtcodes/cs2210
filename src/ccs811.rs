@@ -1,6 +1,7 @@
 use rppal::gpio::{Gpio, OutputPin};
 use rppal::i2c::I2c;
 use std::cmp::min;
+use std::fmt::{self, write};
 use std::result::Result::Err;
 use std::thread::sleep;
 use std::time::Duration;
@@ -18,6 +19,7 @@ pub const CCS811_SLAVEADDR_1: u16 = 0x5B;
 
 // CCS811 registers/mailboxes, all 1 byte except when stated otherwise
 pub const CCS811_STATUS: u8 = 0x00;
+pub const CCS811_ERR: u8 = 0xE0;
 pub const CCS811_MEAS_MODE: u8 = 0x01;
 pub const CCS811_ALG_RESULT_DATA: u8 = 0x02; // up to 8 bytes
 pub const CCS811_ENV_DATA: u8 = 0x05; // 4 bytes
@@ -65,6 +67,29 @@ pub struct Ccs811Data {
     pub e_co2: u16,
     pub raw: Vec<u8>,
 }
+
+pub struct CCS811ErrorRegister {
+    pub error_present: bool,
+    pub write_reg_invalid: bool,
+    pub read_reg_invalid: bool,
+    pub meas_mode_invalid: bool,
+    pub max_resistance: bool,
+    pub heater_fault: bool,
+    pub heater_supply: bool,
+}
+
+// impl fmt::Display for CCS811ErrorRegister {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         let mut fmt_str = "";
+//         if (self.error_present) {
+//             fmt_str = format!( "error_present: {}\nwrite_reg_invalid: {}\nread_reg_invalid: {}\nmeas_mode_invalid: {}\nmax_resistance: {}\nmax_resistance: {}\nheater_fault: {}\nheater_supply: {}",
+//                 self.error_present,self.write_reg_invalid,self.read_reg_invalid,self.meas_mode_invalid, self.max_resistance, self.heater_fault, self.heater_supply);
+//         } else {
+//             fmt_str = "No error";
+//         }
+//         write(f, "{}", fmt_str)
+//     }
+// }
 
 pub struct CCS811 {
     pub i2c: I2c,
@@ -136,6 +161,7 @@ impl CCS811 {
             .i2c
             .set_slave_address(CCS811_SLAVEADDR_0)
             .map_err(|error| format!("Could not set slave addr: {}", error));
+
         if let Some(pin) = &mut self.wake {
             pin.set_low();
             sleep(CCS811_WAIT_AFTER_WAKE_US);
@@ -221,68 +247,47 @@ impl CCS811 {
         Ok(())
     }
 
-    /// Version should be something like 0x1X
-    pub fn hardware_version(&mut self) -> Result<u8, String> {
-        self.i2c
-            .smbus_read_byte(CCS811_HW_VERSION)
-            .map_err(|error| format!("Could not read hardware version: {}", error))
-    }
+    pub fn check_error(&mut self) -> Result<CCS811ErrorRegister, String> {
+        let mut buffer = [0u8; 1];
 
-    /// Something like 0x10 0x0
-    pub fn bootloader_version(&mut self) -> Result<[u8; 2], String> {
-        let mut buffer = [0; 2];
-        self.i2c
-            .block_read(CCS811_FW_BOOT_VERSION, &mut buffer)
-            .map_err(|error| format!("Could not read boot loader version: {}", error))?;
+        let _ = self
+            .i2c
+            .block_read(CCS811_STATUS, &mut buffer)
+            .map_err(|error| format!("Could not read status: {}", error))?;
 
-        Ok(buffer)
-    }
+        let mut status = buffer[0];
 
-    /// Something like 0x10 0x0 or higher. You can flash a newer firmware (2.0.0) using the flash method
-    /// and a firmware binary. See examples for more details
-    pub fn application_version(&mut self) -> Result<[u8; 2], String> {
-        let mut buffer = [0; 2];
-        self.i2c
-            .block_read(CCS811_FW_APP_VERSION, &mut buffer)
-            .map_err(|error| format!("Could not read application version: {}", error))?;
+        let error = (status & 0b0000_0001) != 0; // Bit 0: ERROR (1 = error occurred)
 
-        Ok(buffer)
-    }
+        let _ = self
+            .i2c
+            .block_read(CCS811_ERR, &mut buffer)
+            .map_err(|error| format!("Could not read status: {}", error))?;
 
-    /// Get the currently used baseline
-    pub fn get_baseline(&mut self) -> Result<u16, String> {
-        self.i2c
-            .smbus_read_word(CCS811_BASELINE)
-            .map_err(|error| format!("Could not read baseline: {}", error))
-    }
+        // Read status byte from error register
+        status = buffer[0];
 
-    /// The CCS811 chip has an automatic baseline correction based on a 24 hour interval but you still
-    /// can set the baseline manually if you want.
-    pub fn set_baseline(&mut self, baseline: u16) -> Result<(), String> {
-        self.i2c
-            .smbus_write_word(CCS811_BASELINE, baseline)
-            .map_err(|error| format!("Could not set baseline: {}", error))
-    }
-
-    /// Set environmental data measured by external sensors to the chip to include those in
-    /// calculations. E.g. humidity 48.5% and 23.3°C
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// match ccs811.set_env_data(48.5, 23.3) {
-    ///   Ok(()) => println!("Updated environmental data on chip"),
-    ///   Err(error) => panic!("Failed to set environmental data on chip because {}", error)
-    /// }
-    /// ```
-    pub fn set_env_data(&mut self, humidity: f32, temperature: f32) -> Result<(), String> {
-        let data = [float_to_bytes(humidity), float_to_bytes(temperature)].concat();
-
-        self.i2c
-            .block_write(CCS811_ENV_DATA, &data)
-            .map_err(|error| format!("Could npt write env data: {}", error))?;
-
-        Ok(())
+        if error {
+            Ok(CCS811ErrorRegister {
+                error_present: true,
+                write_reg_invalid: (status & 0b0000_0001) != 0,
+                read_reg_invalid: false,
+                meas_mode_invalid: false,
+                max_resistance: (status & 0b0000_1000) != 0,
+                heater_fault: (status & 0b0001_0000) != 0,
+                heater_supply: false,
+            })
+        } else {
+            Ok(CCS811ErrorRegister {
+                error_present: false,
+                write_reg_invalid: false,
+                read_reg_invalid: false,
+                meas_mode_invalid: false,
+                max_resistance: false,
+                heater_fault: false,
+                heater_supply: false,
+            })
+        }
     }
 
     /// Read last sampled eCO2, tVOC and the corresponding status, error and raw data from the
@@ -299,10 +304,12 @@ impl CCS811 {
     /// };
     /// ```
     pub fn read(&mut self) -> Result<Ccs811Data, String> {
-        let mut buffer = [0; 8];
+        let mut buffer = [0u8; 1];
         self.awake();
 
-        self.i2c.set_slave_address(CCS811_SLAVEADDR_0);
+        self.i2c
+            .set_slave_address(CCS811_SLAVEADDR_0)
+            .expect("Failed to set slave address for CCS811");
 
         self.i2c
             .block_read(CCS811_ALG_RESULT_DATA, &mut buffer)
@@ -328,77 +335,5 @@ impl CCS811 {
         }
 
         Ok(data)
-    }
-
-    /// Flash another firmware to the CCS811 chip. The firmware can be found in the world wide web in
-    /// form of an binary file which must be read and passed as byte array to this function.
-    /// If flashing fails the chip still got a working boot loader which makes it possible to write
-    /// another firmware to the chip and fix the issue.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::fs::File;
-    /// use std::io::Read;
-    ///
-    /// let mut ccs811 = ccs811::new(i2c, None);
-    ///
-    /// let mut file = File::open("./CCS811_FW_App_v2-0-1.bin")
-    ///     .expect("No firmware found");
-    /// let mut data = vec![];
-    /// let read = file.read_to_end(&mut data)
-    ///     .expect("Could not load firmware");
-    ///
-    /// println!("Firmware has size of {} bytes", read);
-    ///
-    /// ccs811.flash(data)
-    /// .expect("Failed to flash firmware");
-    ///
-    /// println!("Flashed :)");
-    /// ```
-    pub fn flash(&mut self, data: Vec<u8>) -> Result<(), String> {
-        self.i2c
-            .set_slave_address(CCS811_SLAVEADDR_0)
-            .map_err(|error| format!("Could not set slave addr: {}", error))?;
-
-        self.reset()?;
-        self.check_status(CCS811_STATUS_APP_VALID)
-            .map_err(|error| format!("Not valid: {}", error))?; //status!=0x00 && status!=0x10
-        self.erase_app()?;
-        self.check_status(CCS811_STATUS_APP_ERASE)
-            .map_err(|error| format!("Not erased: {}", error))?; // status!=0x40
-
-        let mut i = 0;
-        loop {
-            println!("Flashing {} of {}\r", i, data.len());
-            if i >= data.len() {
-                break;
-            }
-            let end = match i + 8 {
-                v if v > data.len() => data.len(),
-                v => v,
-            };
-            self.i2c
-                .block_write(CCS811_APP_DATA, &data[i..end])
-                .map_err(|error| format!("Could not write firmware: {}", error))?;
-
-            i += 8;
-        }
-        sleep(CCS811_WAIT_AFTER_APPDATA_MS);
-
-        self.i2c
-            .write(&[CCS811_APP_VERIFY])
-            .map_err(|error| format!("Could not reset verify bit: {}", error))?;
-        sleep(CCS811_WAIT_AFTER_APPVERIFY_MS);
-
-        self.check_status(
-            CCS811_STATUS_APP_ERASE | CCS811_STATUS_APP_VERIFY | CCS811_STATUS_APP_VALID,
-        )
-        .map_err(|error| format!("Not verified: {}", error))?;
-
-        self.reset()?;
-
-        self.check_status(CCS811_STATUS_APP_VALID)
-            .map_err(|error| format!("Unexpected status after flashing: {}", error))
     }
 }
