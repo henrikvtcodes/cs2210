@@ -43,70 +43,39 @@ fn main() {
     let eco2_gauge = register_gauge!("eco2", "eCO2").expect("can not create gauge eCO2");
     let pressure_gauge = register_gauge!("pressure", "hPa").expect("can not create gauge pressure");
 
-    // loop {
-    //     // println!("Read VOC Sensor");
-    //     // match voc.read() {
-    //     //     Ok(data) => {
-    //     //         println!(
-    //     //             "t_voc: {}, e_co2: {}, raw: {:x?}",
-    //     //             data.t_voc, data.e_co2, data.raw
-    //     //         );
-    //     //     }
-    //     //     Err(error) => println!("Could not read data: {}", error),
-    //     // }
-
-    //     println!("Read TMP Sensor");
-    //     match temp.read() {
-    //         Ok(data) => {
-    //             println!("Temp Celsius: {:}", data)
-    //         }
-    //         Err(err) => {
-    //             println!("Could not read temp data: {}", err)
-    //         }
-    //     }
-
-    //     println!("Read BMP280 pressure");
-    //     match press.read_pressure() {
-    //         Ok(data) => {
-    //             println!("Pressure: {} kPa", data);
-    //         }
-    //         Err(err) => {
-    //             println!("Could not read BMP280 pressure data: {}", err)
-    //         }
-    //     }
-    //     println!("Read BMP280 temperature");
-    //     match press.read_temperature() {
-    //         Ok(data) => {
-    //             println!("Temperature: {} Celsius", data);
-    //         }
-    //         Err(err) => {
-    //             println!("Could not read BMP280 temperature data: {}", err)
-    //         }
-    //     }
-
-    //     sleep(Duration::from_secs_f32(2.0));
-    // }
-
     loop {
-        // Will block until a new request comes in.
-        let _guard = exporter.wait_request();
-        println!("Updating metrics");
+        println!("Read VOC Sensor");
+        match voc.read() {
+            Ok(data) => {
+                println!(
+                    "t_voc: {}, e_co2: {}, raw: {:x?}",
+                    data.t_voc, data.e_co2, data.raw
+                );
+            }
+            Err(error) => println!("Could not read data: {}", error),
+        }
 
-        let curr_temp = temp.read().unwrap() as f64;
-        temp_gauge.set(curr_temp);
-
-        let curr_pressure = press.read_pressure().unwrap() as f64;
-        pressure_gauge.set(curr_pressure);
-
-        let curr_voc = voc.read().unwrap();
-        // let curr_voc = Ccs811Data {
-        //     e_co2: 0,
-        //     t_voc: 0,
-        //     raw: vec![],
-        // };
-        tvoc_gauge.set(curr_voc.t_voc as f64);
-        eco2_gauge.set(curr_voc.e_co2 as f64);
+        sleep(Duration::from_secs_f32(2.0));
     }
 
-    // println!("Hello, world!");
+    // loop {
+    //     // Will block until a new request comes in.
+    //     let _guard = exporter.wait_request();
+    //     println!("Updating metrics");
+
+    //     let curr_temp = temp.read().unwrap() as f64;
+    //     temp_gauge.set(curr_temp);
+
+    //     let curr_pressure = press.read_pressure().unwrap() as f64;
+    //     pressure_gauge.set(curr_pressure);
+
+    //     let curr_voc = voc.read().unwrap();
+    //     // let curr_voc = Ccs811Data {
+    //     //     e_co2: 0,
+    //     //     t_voc: 0,
+    //     //     raw: vec![],
+    //     // };
+    //     tvoc_gauge.set(curr_voc.t_voc as f64);
+    //     eco2_gauge.set(curr_voc.e_co2 as f64);
+    // }
 }
