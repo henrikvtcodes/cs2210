@@ -298,6 +298,8 @@ impl CCS811 {
         let mut buffer = [0; 8];
         self.awake();
 
+        self.i2c.set_slave_address(CCS811_SLAVEADDR_0);
+
         self.i2c
             .block_read(CCS811_ALG_RESULT_DATA, &mut buffer)
             .map_err(|error| format!("Could not read chip data: {}", error))?;
