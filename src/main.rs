@@ -10,10 +10,10 @@ use std::time::Duration;
 fn main() {
     let i2c = I2c::with_bus(1).expect("Failed to start I2c!");
 
-    let mut voc = ccs811::CCS811::new(i2c, 14);
+    // let mut voc = ccs811::CCS811::new(&i2c, 14);
     let mut temp = tmp102::TMP102::new(i2c);
 
-    voc.begin();
+    // voc.begin();
 
     loop {
         // match voc.read() {
@@ -35,7 +35,7 @@ fn main() {
             }
         }
 
-        sleep(Duration::from_secs_f32(5));
+        sleep(Duration::from_secs_f32(5.0));
     }
 
     // println!("Hello, world!");
