@@ -37,6 +37,8 @@ fn main() {
     let addr: SocketAddr = "0.0.0.0:9184".parse().unwrap();
     let exporter = prometheus_exporter::start(addr).unwrap();
 
+    println!("Metrics server started on http://{}/metrics", addr);
+
     let temp_gauge = register_gauge!("temperature", "ambient temperature in celsius")
         .expect("can not create gauge temperature");
     let tvoc_gauge = register_gauge!("tvoc", "tVOC").expect("can not create gauge tvoc");
@@ -44,38 +46,23 @@ fn main() {
     let pressure_gauge = register_gauge!("pressure", "hPa").expect("can not create gauge pressure");
 
     loop {
-        println!("Read VOC Sensor");
-        match voc.read() {
-            Ok(data) => {
-                println!(
-                    "t_voc: {}, e_co2: {}, raw: {:x?}",
-                    data.t_voc, data.e_co2, data.raw
-                );
-            }
-            Err(error) => println!("Could not read data: {}", error),
-        }
+        // Will block until a new request comes in.
+        let _guard = exporter.wait_request();
+        println!("Updating metrics");
 
-        sleep(Duration::from_secs_f32(2.0));
+        let curr_temp = temp.read().unwrap() as f64;
+        temp_gauge.set(curr_temp);
+
+        let curr_pressure = press.read_pressure().unwrap() as f64;
+        pressure_gauge.set(curr_pressure);
+
+        let curr_voc = voc.read().unwrap();
+        // let curr_voc = Ccs811Data {
+        //     e_co2: 0,
+        //     t_voc: 0,
+        //     raw: vec![],
+        // };
+        tvoc_gauge.set(curr_voc.t_voc as f64);
+        eco2_gauge.set(curr_voc.e_co2 as f64);
     }
-
-    // loop {
-    //     // Will block until a new request comes in.
-    //     let _guard = exporter.wait_request();
-    //     println!("Updating metrics");
-
-    //     let curr_temp = temp.read().unwrap() as f64;
-    //     temp_gauge.set(curr_temp);
-
-    //     let curr_pressure = press.read_pressure().unwrap() as f64;
-    //     pressure_gauge.set(curr_pressure);
-
-    //     let curr_voc = voc.read().unwrap();
-    //     // let curr_voc = Ccs811Data {
-    //     //     e_co2: 0,
-    //     //     t_voc: 0,
-    //     //     raw: vec![],
-    //     // };
-    //     tvoc_gauge.set(curr_voc.t_voc as f64);
-    //     eco2_gauge.set(curr_voc.e_co2 as f64);
-    // }
 }
