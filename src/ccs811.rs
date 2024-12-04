@@ -69,38 +69,55 @@ pub struct Ccs811Data {
     pub raw: Vec<u8>,
 }
 
-pub struct CCS811ErrorRegister {
-    pub error_present: bool,
-    pub write_reg_invalid: bool,
-    pub read_reg_invalid: bool,
-    pub meas_mode_invalid: bool,
-    pub max_resistance: bool,
-    pub heater_fault: bool,
-    pub heater_supply: bool,
-}
-
-// impl fmt::Display for CCS811ErrorRegister {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         let mut fmt_str = "";
-//         if (self.error_present) {
-//             fmt_str = format!( "error_present: {}\nwrite_reg_invalid: {}\nread_reg_invalid: {}\nmeas_mode_invalid: {}\nmax_resistance: {}\nmax_resistance: {}\nheater_fault: {}\nheater_supply: {}",
-//                 self.error_present,self.write_reg_invalid,self.read_reg_invalid,self.meas_mode_invalid, self.max_resistance, self.heater_fault, self.heater_supply);
-//         } else {
-//             fmt_str = "No error";
-//         }
-//         write(f, "{}", fmt_str)
-//     }
-// }
-
 pub struct CCS811 {
     pub i2c: I2c,
 }
+// ------------------------------------------------------------------------
 
 impl CCS811 {
+    pub fn new(i2c: I2c) -> CCS811 {
+        CCS811 { i2c }
+    }
+
     fn reset(&mut self) -> Result<(), String> {
         self.i2c
             .block_write(CCS811_SW_RESET, &[0x11, 0xE5, 0x72, 0x8A])
             .map_err(|error| format!("Couldn't write to I2C: {}", error))?;
+
+        sleep(CCS811_WAIT_AFTER_RESET_US);
+
+        Ok(())
+    }
+
+    fn app_start(&mut self) -> Result<(), String> {
+        self.i2c
+            .write(&[CCS811_APP_START])
+            .map_err(|error| format!("Could not set App start: {}", error))?;
+
+        sleep(CCS811_WAIT_AFTER_APPSTART_US);
+
+        Ok(())
+    }
+
+    fn erase_app(&mut self) -> Result<(), String> {
+        self.i2c
+            .block_write(CCS811_APP_ERASE, &[0xE7, 0xA7, 0xE6, 0x09])
+            .map_err(|error| format!("Could not erase app: {}", error))?;
+
+        sleep(CCS811_WAIT_AFTER_APPERASE_MS);
+
+        Ok(())
+    }
+
+    fn check_hw_id(&mut self) -> Result<(), String> {
+        let hw_id = self
+            .i2c
+            .smbus_read_byte(CCS811_HW_ID)
+            .map_err(|error| format!("Couldn't read HWID: {}", error))?;
+
+        if hw_id != 0x81 {
+            return Err(format!("HWID of chip is not 0x81 but {:x?}", hw_id));
+        }
 
         Ok(())
     }
@@ -119,10 +136,6 @@ impl CCS811 {
         }
 
         Ok(())
-    }
-
-    pub fn new(i2c: I2c) -> CCS811 {
-        CCS811 { i2c }
     }
 
     /// Initialize CCS811 chip with i2c bus
@@ -144,6 +157,8 @@ impl CCS811 {
             .map_err(|error| format!("Could not set slave addr: {}", error))?;
 
         self.reset()
+            .and(self.check_hw_id())
+            .and(self.app_start())
             .and(self.check_status(CCS811_STATUS_APP_MODE | CCS811_STATUS_APP_VERIFY))?;
 
         Ok(())
@@ -177,47 +192,68 @@ impl CCS811 {
         Ok(())
     }
 
-    pub fn check_error(&mut self) -> Result<CCS811ErrorRegister, String> {
-        let mut buffer = [0u8; 1];
+    /// Version should be something like 0x1X
+    pub fn hardware_version(&mut self) -> Result<u8, String> {
+        self.i2c
+            .smbus_read_byte(CCS811_HW_VERSION)
+            .map_err(|error| format!("Could not read hardware version: {}", error))
+    }
 
-        let _ = self
-            .i2c
-            .block_read(CCS811_STATUS, &mut buffer)
-            .map_err(|error| format!("Could not read status: {}", error))?;
+    /// Something like 0x10 0x0
+    pub fn bootloader_version(&mut self) -> Result<[u8; 2], String> {
+        let mut buffer = [0; 2];
+        self.i2c
+            .block_read(CCS811_FW_BOOT_VERSION, &mut buffer)
+            .map_err(|error| format!("Could not read boot loader version: {}", error))?;
 
-        let mut status = buffer[0];
+        Ok(buffer)
+    }
 
-        let error = (status & 0b0000_0001) != 0; // Bit 0: ERROR (1 = error occurred)
+    /// Something like 0x10 0x0 or higher. You can flash a newer firmware (2.0.0) using the flash method
+    /// and a firmware binary. See examples for more details
+    pub fn application_version(&mut self) -> Result<[u8; 2], String> {
+        let mut buffer = [0; 2];
+        self.i2c
+            .block_read(CCS811_FW_APP_VERSION, &mut buffer)
+            .map_err(|error| format!("Could not read application version: {}", error))?;
 
-        let _ = self
-            .i2c
-            .block_read(CCS811_ERR, &mut buffer)
-            .map_err(|error| format!("Could not read status: {}", error))?;
+        Ok(buffer)
+    }
 
-        // Read status byte from error register
-        status = buffer[0];
+    /// Get the currently used baseline
+    pub fn get_baseline(&mut self) -> Result<u16, String> {
+        self.i2c
+            .smbus_read_word(CCS811_BASELINE)
+            .map_err(|error| format!("Could not read baseline: {}", error))
+    }
 
-        if error {
-            Ok(CCS811ErrorRegister {
-                error_present: true,
-                write_reg_invalid: (status & 0b0000_0001) != 0,
-                read_reg_invalid: false,
-                meas_mode_invalid: false,
-                max_resistance: (status & 0b0000_1000) != 0,
-                heater_fault: (status & 0b0001_0000) != 0,
-                heater_supply: false,
-            })
-        } else {
-            Ok(CCS811ErrorRegister {
-                error_present: false,
-                write_reg_invalid: false,
-                read_reg_invalid: false,
-                meas_mode_invalid: false,
-                max_resistance: false,
-                heater_fault: false,
-                heater_supply: false,
-            })
-        }
+    /// The CCS811 chip has an automatic baseline correction based on a 24 hour interval but you still
+    /// can set the baseline manually if you want.
+    pub fn set_baseline(&mut self, baseline: u16) -> Result<(), String> {
+        self.i2c
+            .smbus_write_word(CCS811_BASELINE, baseline)
+            .map_err(|error| format!("Could not set baseline: {}", error))
+    }
+
+    /// Set environmental data measured by external sensors to the chip to include those in
+    /// calculations. E.g. humidity 48.5% and 23.3°C
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// match ccs811.set_env_data(48.5, 23.3) {
+    ///   Ok(()) => println!("Updated environmental data on chip"),
+    ///   Err(error) => panic!("Failed to set environmental data on chip because {}", error)
+    /// }
+    /// ```
+    pub fn set_env_data(&mut self, humidity: f32, temperature: f32) -> Result<(), String> {
+        let data = [float_to_bytes(humidity), float_to_bytes(temperature)].concat();
+
+        self.i2c
+            .block_write(CCS811_ENV_DATA, &data)
+            .map_err(|error| format!("Could npt write env data: {}", error))?;
+
+        Ok(())
     }
 
     /// Read last sampled eCO2, tVOC and the corresponding status, error and raw data from the
@@ -234,30 +270,28 @@ impl CCS811 {
     /// };
     /// ```
     pub fn read(&mut self) -> Result<Ccs811Data, String> {
-        let mut buffer = [0u8; 8];
+        let mut buffer = [0; 8];
+
         self.i2c
             .block_read(CCS811_ALG_RESULT_DATA, &mut buffer)
-            .expect("VOC read failed during i2c");
+            .map_err(|error| format!("Could not read chip data: {}", error))?;
 
-        let co2 = u32::from_be_bytes([0, buffer[0], buffer[1], 0]);
-        let tvoc = u32::from_be_bytes([0, buffer[2], buffer[3], 0]);
-
-        // if buffer[5] != 0 {
-        //     return Err(format!("Some error while reading data {:x?}", buffer[5]));
-        // }
+        if buffer[5] != 0 {
+            return Err(format!("Some error while reading data {:x?}", buffer[5]));
+        }
 
         let data = Ccs811Data {
-            e_co2: co2,
-            t_voc: tvoc,
+            e_co2: (buffer[0] as u16 * 256 + buffer[1] as u16) as u32,
+            t_voc: (buffer[2] as u16 * 256 + buffer[3] as u16) as u32,
             raw: buffer.to_vec(),
         };
 
-        // if data.t_voc > 1187 || data.e_co2 > 8192 {
-        //     return Err(format!(
-        //         "The data is above max {}ppb, {}ppm",
-        //         data.t_voc, data.e_co2
-        //     ));
-        // }
+        if data.t_voc > 1187 || data.e_co2 > 8192 {
+            return Err(format!(
+                "The data is above max {}ppb, {}ppm",
+                data.t_voc, data.e_co2
+            ));
+        }
 
         Ok(data)
     }

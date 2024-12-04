@@ -23,15 +23,15 @@ fn main() {
         .intialize()
         .expect("Failed to initialize pressure sensor");
 
-    // voc.begin().expect("Could not begin VOC sensor reading ");
+    voc.begin().expect("Could not begin VOC sensor reading ");
 
-    // match voc.begin() {
-    //     Ok(()) => match voc.start(ccs811::Ccs811Mode::Sec1) {
-    //         Ok(()) => (),
-    //         Err(error) => panic!("Could not start: {}", error),
-    //     },
-    //     Err(error) => panic!("Could not init the chip: {}", error),
-    // }
+    match voc.begin() {
+        Ok(()) => match voc.start(ccs811::Ccs811Mode::Sec1) {
+            Ok(()) => (),
+            Err(error) => panic!("Could not start: {}", error),
+        },
+        Err(error) => panic!("Could not init the chip: {}", error),
+    }
 
     // --- --- --- Prometheus Exporter --- --- ---
     let addr: SocketAddr = "0.0.0.0:9184".parse().unwrap();
