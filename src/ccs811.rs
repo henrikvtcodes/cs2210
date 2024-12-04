@@ -99,16 +99,6 @@ impl CCS811 {
         Ok(())
     }
 
-    fn erase_app(&mut self) -> Result<(), String> {
-        self.i2c
-            .block_write(CCS811_APP_ERASE, &[0xE7, 0xA7, 0xE6, 0x09])
-            .map_err(|error| format!("Could not erase app: {}", error))?;
-
-        sleep(CCS811_WAIT_AFTER_APPERASE_MS);
-
-        Ok(())
-    }
-
     fn check_hw_id(&mut self) -> Result<(), String> {
         let hw_id = self
             .i2c
@@ -192,70 +182,6 @@ impl CCS811 {
         Ok(())
     }
 
-    /// Version should be something like 0x1X
-    pub fn hardware_version(&mut self) -> Result<u8, String> {
-        self.i2c
-            .smbus_read_byte(CCS811_HW_VERSION)
-            .map_err(|error| format!("Could not read hardware version: {}", error))
-    }
-
-    /// Something like 0x10 0x0
-    pub fn bootloader_version(&mut self) -> Result<[u8; 2], String> {
-        let mut buffer = [0; 2];
-        self.i2c
-            .block_read(CCS811_FW_BOOT_VERSION, &mut buffer)
-            .map_err(|error| format!("Could not read boot loader version: {}", error))?;
-
-        Ok(buffer)
-    }
-
-    /// Something like 0x10 0x0 or higher. You can flash a newer firmware (2.0.0) using the flash method
-    /// and a firmware binary. See examples for more details
-    pub fn application_version(&mut self) -> Result<[u8; 2], String> {
-        let mut buffer = [0; 2];
-        self.i2c
-            .block_read(CCS811_FW_APP_VERSION, &mut buffer)
-            .map_err(|error| format!("Could not read application version: {}", error))?;
-
-        Ok(buffer)
-    }
-
-    /// Get the currently used baseline
-    pub fn get_baseline(&mut self) -> Result<u16, String> {
-        self.i2c
-            .smbus_read_word(CCS811_BASELINE)
-            .map_err(|error| format!("Could not read baseline: {}", error))
-    }
-
-    /// The CCS811 chip has an automatic baseline correction based on a 24 hour interval but you still
-    /// can set the baseline manually if you want.
-    pub fn set_baseline(&mut self, baseline: u16) -> Result<(), String> {
-        self.i2c
-            .smbus_write_word(CCS811_BASELINE, baseline)
-            .map_err(|error| format!("Could not set baseline: {}", error))
-    }
-
-    /// Set environmental data measured by external sensors to the chip to include those in
-    /// calculations. E.g. humidity 48.5% and 23.3°C
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// match ccs811.set_env_data(48.5, 23.3) {
-    ///   Ok(()) => println!("Updated environmental data on chip"),
-    ///   Err(error) => panic!("Failed to set environmental data on chip because {}", error)
-    /// }
-    /// ```
-    pub fn set_env_data(&mut self, humidity: f32, temperature: f32) -> Result<(), String> {
-        let data = [float_to_bytes(humidity), float_to_bytes(temperature)].concat();
-
-        self.i2c
-            .block_write(CCS811_ENV_DATA, &data)
-            .map_err(|error| format!("Could npt write env data: {}", error))?;
-
-        Ok(())
-    }
-
     /// Read last sampled eCO2, tVOC and the corresponding status, error and raw data from the
     /// chip register
     ///
@@ -286,12 +212,12 @@ impl CCS811 {
             raw: buffer.to_vec(),
         };
 
-        if data.t_voc > 1187 || data.e_co2 > 8192 {
-            return Err(format!(
-                "The data is above max {}ppb, {}ppm",
-                data.t_voc, data.e_co2
-            ));
-        }
+        // if data.t_voc > 1187 || data.e_co2 > 8192 {
+        //     return Err(format!(
+        //         "The data is above max {}ppb, {}ppm",
+        //         data.t_voc, data.e_co2
+        //     ));
+        // }
 
         Ok(data)
     }
